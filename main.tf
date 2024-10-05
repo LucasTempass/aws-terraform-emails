@@ -1,40 +1,51 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 provider "aws" {
   region     = "sa-east-1"
-  # TODO adicionar credenciais
-  access_key = "",
-  secret_key = "",
 }
 
 # Lambda Function - API Gateway handler
 
-data "aws_iam_policy_document" "assume_role" {
+data "aws_iam_policy_document" "gateway-assume-role" {
   statement {
     effect = "Allow"
     actions = ["sts:AssumeRole"]
     principals {
-      identifiers = ["lambda.amazonaws.com"]
-      type = "Service"
+      identifiers = ["*"]
+      type = "AWS"
     }
   }
 }
 
 resource "aws_iam_role" "gateway-lambda-iam-role" {
-  name               = "iam_for_lambda"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  name               = "gateway-lambda-iam-role"
+  assume_role_policy = data.aws_iam_policy_document.gateway-assume-role.json
 }
 
-data "archive_file" "gateway_lambda" {
+data "archive_file" "gateway-lambda" {
   source_file = "lambda.js"
   output_path = "lambda_function_payload.zip"
   type        = "zip"
 }
 
 resource "aws_lambda_function" "gateway-lambda-function" {
-  function_name    = "ses_lambda"
+  function_name    = "gateway-lambda-function"
   filename         = "lambda_function_payload.zip"
   role             = aws_iam_role.gateway-lambda-iam-role.arn
-  source_code_hash = data.archive_file.gateway_lambda.output_base64sha256
+  source_code_hash = data.archive_file.gateway-lambda.output_base64sha256
   runtime          = "nodejs18.x"
+  handler          = "lambda.handler"
+}
+
+resource "aws_cloudwatch_log_group" "gateway-lambda-cloudwatch_log_group" {
+
 }
 
 # API Gateway
@@ -57,11 +68,12 @@ resource "aws_api_gateway_method" "email-gateway-method" {
 }
 
 resource "aws_api_gateway_integration" "email-lambda-gateway-integration" {
-  rest_api_id = aws_api_gateway_rest_api.email-api.id
-  resource_id = aws_api_gateway_resource.email_gateway_resource.id
-  http_method = aws_api_gateway_method.email-gateway-method.http_method
-  type        = "AWS"
-  uri         = aws_lambda_function.gateway-lambda-function.invoke_arn
+  rest_api_id             = aws_api_gateway_rest_api.email-api.id
+  resource_id             = aws_api_gateway_resource.email_gateway_resource.id
+  http_method             = aws_api_gateway_method.email-gateway-method.http_method
+  type                    = "AWS"
+  uri                     = aws_lambda_function.gateway-lambda-function.invoke_arn
+  integration_http_method = "POST"
 }
 
 
@@ -137,20 +149,20 @@ resource "aws_sqs_queue_policy" "sh_sqs_policy" {
 
 # Lambda Function - SES handler
 
-data "aws_iam_policy_document" "assume_role" {
+data "aws_iam_policy_document" "ses-assume-role" {
   statement {
     effect = "Allow"
     actions = ["sts:AssumeRole"]
     principals {
-      identifiers = ["lambda.amazonaws.com"]
-      type = "Service"
+      identifiers = ["*"]
+      type = "AWS"
     }
   }
 }
 
 resource "aws_iam_role" "ses-lambda-iam-role" {
   name               = "iam-for-ses-lambda"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+  assume_role_policy = data.aws_iam_policy_document.ses-assume-role.json
 }
 
 data "aws_iam_policy_document" "ses-lambda" {
@@ -200,12 +212,13 @@ resource "aws_lambda_function" "ses-lambda-function" {
   role             = aws_iam_role.ses-lambda-iam-role.arn
   source_code_hash = data.archive_file.ses-lambda.output_base64sha256
   runtime          = "nodejs18.x"
+  handler          = "index.handler"
 }
 
 # Linking SQS and Lambda
 
-resource "aws_lambda_event_source_mapping" "event_source_mapping" {
-  event_source_arn = aws_sqs_queue.email_sqs_queue.arn
-  function_name    = aws_lambda_function.ses-lambda-function.function_name
-  batch_size       = 1
-}
+# resource "aws_lambda_event_source_mapping" "event_source_mapping" {
+#   event_source_arn = aws_sqs_queue.email_sqs_queue.arn
+#   function_name    = aws_lambda_function.ses-lambda-function.function_name
+#   batch_size       = 1
+# }
