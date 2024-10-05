@@ -29,10 +29,38 @@ resource "aws_iam_role" "gateway-lambda-iam-role" {
   assume_role_policy = data.aws_iam_policy_document.gateway-assume-role.json
 }
 
+data "aws_iam_policy_document" "gateway-lambda" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "sqs:SendMessage",
+      "sqs:ReceiveMessage"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "gateway-lambda-iam-policy" {
+  name   = "gateway-lambda-iam-policy"
+  policy = data.aws_iam_policy_document.gateway-lambda.json
+}
+
+resource "aws_iam_role_policy_attachment" "gateway-lambda-iam-policy-attachment" {
+  role       = aws_iam_role.gateway-lambda-iam-role.name
+  policy_arn = aws_iam_policy.gateway-lambda-iam-policy.arn
+}
+
 data "archive_file" "gateway-lambda" {
   source_file = "lambda.js"
   output_path = "lambda_function_payload.zip"
   type        = "zip"
+}
+
+resource "aws_cloudwatch_log_group" "gateway-lambda-cloudwatch-log-group" {
+  name              = "/aws/lambda/gateway-lambda-function"
+  retention_in_days = 14
 }
 
 resource "aws_lambda_function" "gateway-lambda-function" {
@@ -42,10 +70,6 @@ resource "aws_lambda_function" "gateway-lambda-function" {
   source_code_hash = data.archive_file.gateway-lambda.output_base64sha256
   runtime          = "nodejs18.x"
   handler          = "lambda.handler"
-}
-
-resource "aws_cloudwatch_log_group" "gateway-lambda-cloudwatch_log_group" {
-
 }
 
 # API Gateway
@@ -108,6 +132,24 @@ resource "aws_api_gateway_integration_response" "proxy" {
   ]
 }
 
+resource "aws_iam_role_policy_attachment" "gateway-lambda-basic" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  role = aws_iam_role.gateway-lambda-iam-role.name
+}
+
+resource "aws_iam_role_policy_attachment" "gateway-lambda-sqs" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
+  role = aws_iam_role.gateway-lambda-iam-role.name
+}
+
+resource "aws_lambda_permission" "apigw_lambda" {
+  statement_id = "AllowExecutionFromAPIGateway"
+  action = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.gateway-lambda-function.function_name
+  principal = "apigateway.amazonaws.com"
+  source_arn = "${aws_api_gateway_rest_api.email-api.execution_arn}/*/*/*"
+}
+
 # SES (Simple Email Service)
 
 resource "aws_ses_configuration_set" "ses_configuration_set" {
@@ -165,39 +207,19 @@ resource "aws_iam_role" "ses-lambda-iam-role" {
   assume_role_policy = data.aws_iam_policy_document.ses-assume-role.json
 }
 
-data "aws_iam_policy_document" "ses-lambda" {
-  statement {
-    effect = "Allow"
-
-    actions = [
-      "logs:CreateLogGroup",
-      "logs:CreateLogStream",
-      "logs:PutLogEvents"
-    ]
-
-    resources = ["*"]
-  }
-
-  statement {
-    effect = "Allow"
-
-    actions = [
-      "ses:SendEmail",
-      "ses:SendRawEmail"
-    ]
-
-    resources = ["*"]
-  }
+resource "aws_iam_role_policy_attachment" "ses-lambda-basic" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  role = aws_iam_role.ses-lambda-iam-role.name
 }
 
-resource "aws_iam_policy" "ses-lambda-iam-policy" {
-  name   = "ses-lambda-iam-policy"
-  policy = data.aws_iam_policy_document.ses-lambda.json
+resource "aws_iam_role_policy_attachment" "ses-lambda-ses" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSESFullAccess"
+  role = aws_iam_role.ses-lambda-iam-role.name
 }
 
-resource "aws_iam_role_policy_attachment" "ses-lambda-iam-policy-attachment" {
-  role       = aws_iam_role.ses-lambda-iam-role.name
-  policy_arn = aws_iam_policy.ses-lambda-iam-policy.arn
+resource "aws_iam_role_policy_attachment" "ses-lambda-sqs" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
+  role = aws_iam_role.ses-lambda-iam-role.name
 }
 
 data "archive_file" "ses-lambda" {
@@ -215,10 +237,16 @@ resource "aws_lambda_function" "ses-lambda-function" {
   handler          = "index.handler"
 }
 
+resource "aws_cloudwatch_log_group" "ses-lambda-cloudwatch-log-group" {
+  name              = "/aws/lambda/ses-lambda-function"
+  retention_in_days = 14
+}
+
 # Linking SQS and Lambda
 
-# resource "aws_lambda_event_source_mapping" "event_source_mapping" {
-#   event_source_arn = aws_sqs_queue.email_sqs_queue.arn
-#   function_name    = aws_lambda_function.ses-lambda-function.function_name
-#   batch_size       = 1
-# }
+resource "aws_lambda_event_source_mapping" "event_source_mapping" {
+  event_source_arn = aws_sqs_queue.email_sqs_queue.arn
+  function_name    = aws_lambda_function.ses-lambda-function.function_name
+  batch_size       = 1
+  enabled = true
+}

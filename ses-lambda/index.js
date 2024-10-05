@@ -1,12 +1,12 @@
 const AWS = require('aws-sdk');
 
-const ses = new AWS.SES({ region: 'sa-east-1' });
+const ses = new AWS.SES({region: 'sa-east-1'});
 
 exports.handler = async (event) => {
     const params = {
-        Source: '', // replace with your verified email address
+        Source: 'lucas.tempass@hotmail.com', // replace with your verified email address
         Destination: {
-            ToAddresses: [] // replace with the recipient's email address
+            ToAddresses: ['lucas.tempass@hotmail.com'] // replace with the recipient's email address
         },
         Message: {
             Subject: {
