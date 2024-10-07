@@ -3,6 +3,8 @@ const AWS = require('aws-sdk');
 const ses = new AWS.SES({region: 'sa-east-1'});
 
 exports.handler = async (event) => {
+    console.log('Event: ', event);
+
     const params = {
         Source: 'lucas.tempass@hotmail.com', // replace with your verified email address
         Destination: {
