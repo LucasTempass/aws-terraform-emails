@@ -8,7 +8,7 @@ terraform {
 }
 
 provider "aws" {
-  region     = "sa-east-1"
+  region = "sa-east-1"
 }
 
 # API Gateway
@@ -47,7 +47,7 @@ resource "aws_api_gateway_method" "email-gateway-method" {
   rest_api_id      = aws_api_gateway_rest_api.email-api.id
   resource_id      = aws_api_gateway_resource.email_gateway_resource.id
   http_method      = "POST"
-  authorization    = "NONE"
+  authorization    = "AWS_IAM"
   api_key_required = false
 }
 
@@ -99,6 +99,32 @@ resource "aws_api_gateway_integration_response" "proxy" {
     aws_api_gateway_method.email-gateway-method,
     aws_api_gateway_integration.email-sqs-gateway-integration
   ]
+}
+
+# API Gateway Consumer User
+
+resource "aws_iam_user" "api-gateway-user" {
+  name = "api-gateway-user"
+}
+
+resource "aws_iam_policy" "api-gateway-user-policy" {
+  name        = "api-gateway-user-policy"
+  description = "Policy for API Gateway User"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect   = "Allow",
+        Action   = "execute-api:Invoke",
+        Resource = "arn:aws:execute-api:sa-east-1:*:${aws_api_gateway_rest_api.email-api.id}/*/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_user_policy_attachment" "api-gateway-user-policy-attachment" {
+  user       = aws_iam_user.api-gateway-user.name
+  policy_arn = aws_iam_policy.api-gateway-user-policy.arn
 }
 
 # SES (Simple Email Service)
